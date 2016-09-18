@@ -170,6 +170,7 @@ mod test {
                 assert_eq!(request.path, "/bucket/key");
                 assert_eq!(request.params.get("Action"), sstr("GetObject").as_ref());
                 assert_eq!(request.params.get("response-content-type"), sstr("response_content_type").as_ref());
+                assert!(request.headers.get("range").unwrap().contains(&Vec::from("range")));
 
                 assert_eq!(request.payload, None);
             });
