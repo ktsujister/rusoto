@@ -110,7 +110,7 @@ mod test {
 
         let owner = result.owner.unwrap();
         assert_eq!(owner.display_name, Some("webfile".to_string()));
-        assert_eq!(owner.i_d,
+        assert_eq!(owner.id,
                    Some("bcaf1ffd86f461ca5fb16fd081034f".to_string()));
 
         let buckets = result.buckets.unwrap();
@@ -156,9 +156,9 @@ mod test {
             response_content_language: sstr("response_content_language"),
             response_content_type: sstr("response_content_type"),
             response_expires: sstr("response_expires"),
-            s_s_e_customer_algorithm: sstr("s_s_e_customer_algorithm"),
-            s_s_e_customer_key: sstr("s_s_e_customer_key"),
-            s_s_e_customer_key_m_d_5: sstr("s_s_e_customer_key_m_d_5"),
+            sse_customer_algorithm: sstr("sse_customer_algorithm"),
+            sse_customer_key: sstr("sse_customer_key"),
+            sse_customer_key_md5: sstr("sse_customer_key_md5"),
             version_id: sstr("version_id")
         };
 
