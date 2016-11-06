@@ -69,7 +69,7 @@ include!(concat!(env!("OUT_DIR"), "/s3.rs"));
 mod test {
     use std::io::{Read, BufReader};
     use std::fs::File;    
-    use s3::{S3Client, HeadObjectRequest, GetObjectRequest};
+    use s3::{S3Client, HeadObjectRequest, GetObjectRequest, ListMultipartUploadsRequest};
     use s3::{CreateMultipartUploadOutputDeserializer, CompleteMultipartUploadOutputDeserializer};
     use s3::{ListMultipartUploadsOutputDeserializer, ListPartsOutputDeserializer, Initiator, Owner};
     use xmlutil::*;
@@ -123,7 +123,6 @@ mod test {
             }
         }
     }
-
 
     #[test]
     fn list_multipart_upload_happy_path() {
@@ -219,24 +218,38 @@ mod test {
     }
 
     #[test]
-    fn list_multipart_upload_no_uploads() {
-        let file = File::open("tests/sample-data/s3_list_multipart_uploads_no_multipart_uploads.xml").unwrap();
-        let mut file = BufReader::new(file);
-        let mut raw = String::new();
-        file.read_to_string(&mut raw).unwrap();
-        let mut my_parser  = EventReader::from_str(&raw);
-        let my_stack = my_parser.events().peekable();
-        let mut reader = XmlResponse::new(my_stack);
-        reader.next(); // xml start node
-        let result = ListMultipartUploadsOutputDeserializer::deserialize("ListMultipartUploadsResult", &mut reader);
+    fn list_multipart_uploads_no_uploads_properly() {
+        let mock = MockRequestDispatcher::with_status(200)
+            .with_body(r#"
+            <?xml version="1.0" encoding="UTF-8"?>
+            <ListMultipartUploadsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                <Bucket>rusoto1440826568</Bucket>
+                <KeyMarker></KeyMarker>
+                <UploadIdMarker></UploadIdMarker>
+                <NextKeyMarker></NextKeyMarker>
+                <NextUploadIdMarker></NextUploadIdMarker>
+                <MaxUploads>1000</MaxUploads>
+                <IsTruncated>false</IsTruncated>
+            </ListMultipartUploadsResult>
+        "#)
+        .with_request_checker(|request: &SignedRequest| {
+                assert_eq!(request.method, "GET");
+                assert_eq!(request.path, "/test-bucket?uploads");
+                assert_eq!(request.params.get("Action"),
+                           Some(&"ListMultipartUploads".to_string()));
+                assert_eq!(request.payload, None);
+        });
 
-        match result {
-            Err(_) => panic!("Couldn't parse s3_list_multipart_uploads_no_multipart_uploads.xml"),
-            Ok(result) => {
-                assert_eq!(result.bucket, sstr("rusoto1440826568"));
-                assert!(result.uploads.is_none());
-            }
-        }
+        let mut req = ListMultipartUploadsRequest::default();
+        req.bucket = "test-bucket".to_owned();
+       
+        let client = S3Client::with_request_dispatcher(mock, MockCredentialsProvider, Region::UsEast1);
+        let result = client.list_multipart_uploads(&req).unwrap();
+
+        println!("{:#?}", result);
+
+        assert_eq!(result.bucket, sstr("rusoto1440826568"));
+        assert!(result.uploads.is_none());
     }
 
 
@@ -274,8 +287,6 @@ mod test {
 
         let client = S3Client::with_request_dispatcher(mock, MockCredentialsProvider, Region::UsEast1);
         let result = client.list_buckets().unwrap();
-
-        println!("{:#?}", result);
 
         let owner = result.owner.unwrap();
         assert_eq!(owner.display_name, Some("webfile".to_string()));
