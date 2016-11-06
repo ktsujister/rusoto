@@ -71,7 +71,7 @@ mod test {
     use std::fs::File;    
     use s3::{S3Client, HeadObjectRequest, GetObjectRequest, ListMultipartUploadsRequest};
     use s3::{CreateMultipartUploadOutputDeserializer, CompleteMultipartUploadOutputDeserializer};
-    use s3::{ListMultipartUploadsOutputDeserializer, ListPartsOutputDeserializer, Initiator, Owner};
+    use s3::{ListMultipartUploadsOutputDeserializer, ListPartsRequest, Initiator, Owner};
     use xmlutil::*;
     use xml::reader::*;
 
@@ -172,53 +172,90 @@ mod test {
 
     #[test]
     fn list_multipart_upload_parts_happy_path() {
-        let file = File::open("tests/sample-data/s3_multipart_uploads_with_parts.xml").unwrap();
-        let mut file = BufReader::new(file);
-        let mut raw = String::new();
-        file.read_to_string(&mut raw).unwrap();
-        let mut my_parser  = EventReader::from_str(&raw);
-        let my_stack = my_parser.events().peekable();
-        let mut reader = XmlResponse::new(my_stack);
-        reader.next(); // xml start node
-        let result = ListPartsOutputDeserializer::deserialize("ListPartsResult", &mut reader);
+        let mock = MockRequestDispatcher::with_status(200)
+            .with_body(r#"
+            <?xml version="1.0" encoding="UTF-8"?>
+            <ListPartsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                <Bucket>rusoto1440826511</Bucket>
+                <Key>testfile.zip</Key>
+                <UploadId>PeePB_uORK5f2AURP_SWcQ4NO1P1oqnGNNNFK3nhFfzMeksdvG7x7nFfH1qk7a3HSossNYB7t8QhcN1Fg6ax7AXbwvAKIZ9DilB4tUcpM7qyUEgkszN4iDmMvSaImGFK</UploadId>
+                <Initiator>
+                    <ID>arn:aws:iam::347452556412:user/matthew</ID>
+                    <DisplayName>matthew</DisplayName>
+                </Initiator>
+                <Owner>
+                    <ID>b84c6b0c308085829b6562b586f6664fc00faab6cfd441e90ad418ea916eed83</ID>
+                    <DisplayName>matthew</DisplayName>
+                </Owner>
+                <StorageClass>STANDARD</StorageClass>
+                <PartNumberMarker>0</PartNumberMarker>
+                <NextPartNumberMarker>2</NextPartNumberMarker>
+                <MaxParts>1000</MaxParts>
+                <IsTruncated>false</IsTruncated>
+                <Part>
+                    <PartNumber>1</PartNumber>
+                    <LastModified>2015-09-08T21:02:04.000Z</LastModified>
+                    <ETag>&quot;ddcaa99616d7cd06d0a5abfef6ccebbb&quot;</ETag>
+                    <Size>5242880</Size>
+                </Part>
+                <Part>
+                    <PartNumber>2</PartNumber>
+                    <LastModified>2015-09-08T21:02:09.000Z</LastModified>
+                    <ETag>&quot;c865f7d241e2c9e3d3b5fee6955c616e&quot;</ETag>
+                    <Size>5242880</Size>
+                </Part>
+            </ListPartsResult>"#)
+            .with_request_checker(|request: &SignedRequest| {
+                assert_eq!(request.method, "GET");
+                assert_eq!(request.path, "/rusoto1440826511/testfile.zip");
+                assert_eq!(
+                    request.params.get("Action"),
+                    Some(&"ListParts".to_string())
+                );
+                assert_eq!(request.payload, None);
+            });
 
-        match result {
-            Err(_) => panic!("Couldn't parse s3_multipart_uploads_with_parts.xml"),
-            Ok(result) => {
-                assert_eq!(result.bucket, sstr("rusoto1440826511"));
-                assert_eq!(result.upload_id, sstr("PeePB_uORK5f2AURP_SWcQ4NO1P1oqnGNNNFK3nhFfzMeksdvG7x7nFfH1qk7a3HSossNYB7t8QhcN1Fg6ax7AXbwvAKIZ9DilB4tUcpM7qyUEgkszN4iDmMvSaImGFK"));
-                assert_eq!(result.key, sstr("testfile.zip"));
+        let mut req = ListPartsRequest::default();
+        req.bucket = "rusoto1440826511".to_owned();
+        req.key = "testfile.zip".to_owned();
 
-                let test_initiator = Initiator {id: sstr("arn:aws:iam::347452556412:user/matthew"),
-                    display_name: sstr("matthew") };
-
-                assert_eq!(result.initiator.as_ref().unwrap().id, test_initiator.id);
-                assert_eq!(result.initiator.as_ref().unwrap().display_name, test_initiator.display_name);
-
-                let test_owner = Owner { id: sstr("b84c6b0c308085829b6562b586f6664fc00faab6cfd441e90ad418ea916eed83"),
-                    display_name: sstr("matthew") };
-
-                assert_eq!(result.owner.as_ref().unwrap().id, test_owner.id);
-                assert_eq!(result.owner.as_ref().unwrap().display_name, test_owner.display_name);
-
-                assert_eq!(result.storage_class, sstr("STANDARD"));
-
-                assert!(result.parts.is_some());
-
-                let parts = result.parts.unwrap();
-                assert_eq!(parts.len(), 2);
-
-                assert_eq!(parts[0].part_number, Some(1));
-                assert_eq!(parts[0].e_tag, sstr("\"ddcaa99616d7cd06d0a5abfef6ccebbb\""));
-                assert_eq!(parts[0].size, Some(5242880));
-                assert_eq!(parts[0].last_modified, sstr("2015-09-08T21:02:04.000Z"));
-
-            }
-        }
+        let client = S3Client::with_request_dispatcher(mock, MockCredentialsProvider, Region::UsEast1);
+        let result = client.list_parts(&req).unwrap();
+        assert_eq!(result.bucket, sstr("rusoto1440826511"));
+        assert_eq!(result.upload_id, sstr("PeePB_uORK5f2AURP_SWcQ4NO1P1oqnGNNNFK3nhFfzMeksdvG7x7nFfH1qk7a3HSossNYB7t8QhcN1Fg6ax7AXbwvAKIZ9DilB4tUcpM7qyUEgkszN4iDmMvSaImGFK"));
+        assert_eq!(result.key, sstr("testfile.zip"));
+        
+        let test_initiator = Initiator {
+            id: sstr("arn:aws:iam::347452556412:user/matthew"),
+            display_name: sstr("matthew")
+        };
+        
+        assert_eq!(result.initiator.as_ref().unwrap().id, test_initiator.id);
+        assert_eq!(result.initiator.as_ref().unwrap().display_name, test_initiator.display_name);
+        
+        let test_owner = Owner {
+            id: sstr("b84c6b0c308085829b6562b586f6664fc00faab6cfd441e90ad418ea916eed83"),
+            display_name: sstr("matthew")
+        };
+        
+        assert_eq!(result.owner.as_ref().unwrap().id, test_owner.id);
+        assert_eq!(result.owner.as_ref().unwrap().display_name, test_owner.display_name);
+        
+        assert_eq!(result.storage_class, sstr("STANDARD"));
+        
+        assert!(result.parts.is_some());
+        
+        let parts = result.parts.unwrap();
+        assert_eq!(parts.len(), 2);
+        
+        assert_eq!(parts[0].part_number, Some(1));
+        assert_eq!(parts[0].e_tag, sstr("\"ddcaa99616d7cd06d0a5abfef6ccebbb\""));
+        assert_eq!(parts[0].size, Some(5242880));
+        assert_eq!(parts[0].last_modified, sstr("2015-09-08T21:02:04.000Z"));
     }
-
+    
     #[test]
-    fn list_multipart_uploads_no_uploads_properly() {
+    fn list_multipart_uploads_no_uploads() {
         let mock = MockRequestDispatcher::with_status(200)
             .with_body(r#"
             <?xml version="1.0" encoding="UTF-8"?>
@@ -231,22 +268,13 @@ mod test {
                 <MaxUploads>1000</MaxUploads>
                 <IsTruncated>false</IsTruncated>
             </ListMultipartUploadsResult>
-        "#)
-        .with_request_checker(|request: &SignedRequest| {
-                assert_eq!(request.method, "GET");
-                assert_eq!(request.path, "/test-bucket?uploads");
-                assert_eq!(request.params.get("Action"),
-                           Some(&"ListMultipartUploads".to_string()));
-                assert_eq!(request.payload, None);
-        });
+        "#);
 
         let mut req = ListMultipartUploadsRequest::default();
         req.bucket = "test-bucket".to_owned();
        
         let client = S3Client::with_request_dispatcher(mock, MockCredentialsProvider, Region::UsEast1);
         let result = client.list_multipart_uploads(&req).unwrap();
-
-        println!("{:#?}", result);
 
         assert_eq!(result.bucket, sstr("rusoto1440826568"));
         assert!(result.uploads.is_none());
