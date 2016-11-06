@@ -88,7 +88,7 @@ impl GenerateProtocol for RestXmlGenerator {
         "#[derive(Debug, Default)]".to_owned()
     }
 
-    fn generate_support_types(&self, name: &str, shape: &Shape, _service: &Service) -> Option<String> {
+    fn generate_support_types(&self, name: &str, shape: &Shape, service: &Service) -> Option<String> {
 
     	// (most) requests never need XML serialization or deserialization, so don't generate the type
     	if name != "RestoreRequest" && name.ends_with("Request") {
@@ -107,7 +107,7 @@ impl GenerateProtocol for RestXmlGenerator {
                 }}
             }}",
             name = name,
-            deserializer_body = generate_deserializer_body(name, shape)
+            deserializer_body = generate_deserializer_body(name, shape, service)
         ));
 
        	// Output types never need to be serialized
@@ -335,8 +335,8 @@ fn generate_response_headers_parser(service: &Service, operation: &Operation) ->
 
         if shape.required(&member_name) {
             Some(format!("
-                let value = response.headers.get(\"{location_name}\").as_ref().unwrap().to_owned();
-                result.{field_name} = {primitive_parser}",
+                let value = response.headers.get(\"{location_name}\").unwrap().to_owned();
+                result.{field_name} = {primitive_parser};",
                 location_name = member.location_name.as_ref().unwrap(),
                 field_name = member_name.to_snake_case(),
                 primitive_parser = generate_header_primitive_parser(&member_shape)))
@@ -390,7 +390,7 @@ fn generate_method_signature(operation: &Operation) -> String {
     }
 }
 
-fn generate_deserializer_body(name: &str, shape: &Shape) -> String {
+fn generate_deserializer_body(name: &str, shape: &Shape, _service: &Service) -> String {
     match shape.shape_type {
         ShapeType::List => generate_list_deserializer(shape),
         ShapeType::Map => generate_map_deserializer(shape),
@@ -400,6 +400,12 @@ fn generate_deserializer_body(name: &str, shape: &Shape) -> String {
 }
 
 fn generate_list_deserializer(shape: &Shape) -> String {
+
+    // flattened lists are just the list elements repeated without
+    // an enclusing <FooList></FooList> tag
+    if let Some(true) = shape.flattened {
+        return generate_flat_list_deserializer(shape);
+    }
 
     let location_name = shape.member.as_ref().and_then(|m| m.location_name.as_ref()).map(|name| &name[..]).unwrap_or(shape.member());
 
@@ -434,14 +440,40 @@ fn generate_list_deserializer(shape: &Shape) -> String {
         Ok(obj)
         ",
         location_name = location_name,
-        member_name = generate_member_name(&shape)
+        member_name = generate_member_name(&shape.member()[..])
     )
 }
 
-fn generate_member_name(shape: &Shape) -> String {
-	match &shape.member()[..] {
+fn generate_flat_list_deserializer(shape: &Shape) -> String {
+    format!(
+        "
+        let mut obj = vec![];
+
+        loop {{
+
+            let consume_next_tag = match stack.peek() {{
+                Some(&XmlEvent::StartElement {{ ref name, .. }}) => name.local_name == tag_name,
+                _ => false
+            }};
+
+            if consume_next_tag {{
+                obj.push(try!({member_name}Deserializer::deserialize(tag_name, stack)));
+            }} else {{
+                break
+            }}
+
+        }}
+
+        Ok(obj)
+        ",
+        member_name = generate_member_name(shape.member())
+    )
+}
+
+fn generate_member_name(name: &str) -> String {
+	match name {
 		"Error" => "S3Error".to_owned(),
-		_ => shape.member().to_owned()
+		_ => name.to_owned()
 	}
 }
 
@@ -635,7 +667,7 @@ fn generate_primitive_serializer(shape: &Shape) -> String {
 
 fn generate_list_serializer(shape: &Shape) -> String {
 	let member = shape.member.as_ref().unwrap();
-	let element_type = &generate_member_name(shape);
+	let element_type = &generate_member_name(&shape.member()[..]);
 	let location_name = match member.location_name {
 		Some(ref name) => name,
 		None => element_type
