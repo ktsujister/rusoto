@@ -39,7 +39,7 @@ impl GenerateProtocol for RestXmlGenerator {
                     let response = try!(self.dispatcher.dispatch(&request));
 
                     match response.status {{
-                        200 => {{
+                        200|204 => {{
                             {parse_response}
                         }},
                         _ => Err({error_type}::from_body(&response.body))
@@ -293,9 +293,36 @@ fn generate_response_parser(service: &Service, operation: &Operation) -> String 
 
     let output_shape = &operation.output.as_ref().unwrap().shape;
 
-    format!("
-        let mut result;
+    // first - determine if any of the members have the 'streaming' flag set_parameters
+    let body_parser = match streaming_shape_member(service, operation) {
+        None => xml_body_parser(&output_shape),
+        Some(ref streaming_member) => streaming_body_parser(&output_shape, streaming_member)
+    };
 
+    format!("
+        {body_parser}
+
+        {parse_response_headers}
+
+        Ok(result)
+
+        ",
+        body_parser = body_parser,
+        parse_response_headers = generate_response_headers_parser(service, operation).unwrap_or("".to_string()))
+}
+
+fn streaming_body_parser(output_shape: &str, streaming_member: &str) -> String {
+    format!("
+        let mut result = {output_shape}::default();
+        result.{streaming_member} = Some(response.body.as_bytes().to_vec());
+        ",
+        output_shape = output_shape,
+        streaming_member = streaming_member)
+}
+
+fn xml_body_parser(output_shape: &str) -> String {
+   format!("
+        let mut result;
 
         if response.body.is_empty() {{
             result = {output_shape}::default();
@@ -307,13 +334,20 @@ fn generate_response_parser(service: &Service, operation: &Operation) -> String 
             result = try!({output_shape}Deserializer::deserialize(&actual_tag_name, &mut stack));
         }}
 
-        {parse_response_headers}
-
-        Ok(result)
 
         ",
-        output_shape = output_shape,
-        parse_response_headers = generate_response_headers_parser(service, operation).unwrap_or("".to_string()))
+        output_shape = output_shape)
+}
+
+fn streaming_shape_member(service: &Service, operation: &Operation) -> Option<String> {
+    let shape = service.shapes.get(&operation.output.as_ref().unwrap().shape).unwrap();
+
+    for (member_name, member) in shape.members.as_ref().unwrap().iter() {
+        if Some(true) == member.streaming {
+            return Some(member_name.to_snake_case());
+        }
+    }
+    None
 }
 
 fn generate_response_headers_parser(service: &Service, operation: &Operation) -> Option<String> {
