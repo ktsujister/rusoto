@@ -9,7 +9,7 @@ use std::io::Read;
 use std::fs::File;
 use std::env::var;
 use rusoto::{DefaultCredentialsProvider, Region};
-use rusoto::s3::{S3Client, ListObjectsRequest, HeadObjectRequest, CopyObjectRequest,
+use rusoto::s3::{S3Client, HeadObjectRequest, CopyObjectRequest,
                  GetObjectRequest, PutObjectRequest, DeleteObjectRequest};
 
 fn test_bucket() -> String {
@@ -45,7 +45,7 @@ fn object_lifecycle_test() {
                 body: Some(contents),
                 ..Default::default()
             };
-            client.put_object(&req);
+            let _ = client.put_object(&req);
         }
     }
 
@@ -79,9 +79,7 @@ fn object_lifecycle_test() {
         ..Default::default()
     };
 
-    println!("{:#?}", req);
-
-    println!("{:#?}", client.copy_object(&req));
+    println!("{:#?}", client.copy_object(&req).unwrap());
 
     // DELETE the object
     let del_req = DeleteObjectRequest {
@@ -90,7 +88,7 @@ fn object_lifecycle_test() {
         ..Default::default()
     };
 
-    //println!("{:#?}", client.delete_object(&del_req).unwrap());
+    println!("{:#?}", client.delete_object(&del_req).unwrap());
 }
 
 #[test]
