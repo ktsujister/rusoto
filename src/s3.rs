@@ -77,10 +77,7 @@ mod test {
             Err(_) => panic!("Couldn't parse s3_list_multipart_uploads.xml"),
             Ok(result) => {
                 assert_eq!(result.bucket, sstr("rusoto1440826511"));
-
                 assert!(result.uploads.is_some());
-
-                println!("{:#?}", result);
 
                 let an_upload = &result.uploads.unwrap()[0];
                 assert_eq!(an_upload.upload_id, sstr("eUeGzA6xR2jAH7KUhTSwrrNVfu8XPIYdoWpa7meOiceoGQLQhtKfPg_APCnuVRsyWd7bx8SS5jNssgdtTU5tTziGOz.j1URgseoqpdHqnyZRikJHTLd6iXF.GjKBEhky"));
@@ -145,10 +142,6 @@ mod test {
             .with_request_checker(|request: &SignedRequest| {
                 assert_eq!(request.method, "GET");
                 assert_eq!(request.path, "/rusoto1440826511/testfile.zip");
-                assert_eq!(
-                    request.params.get("Action"),
-                    Some(&"ListParts".to_string())
-                );
                 assert_eq!(request.payload, None);
             });
 
@@ -245,8 +238,6 @@ mod test {
             .with_request_checker(|request: &SignedRequest| {
                 assert_eq!(request.method, "GET");
                 assert_eq!(request.path, "/");
-                assert_eq!(request.params.get("Action"),
-                           Some(&"ListBuckets".to_string()));
                 assert_eq!(request.payload, None);
             });
 
@@ -310,13 +301,10 @@ mod test {
         let mock = MockRequestDispatcher::with_status(200)
             .with_body("")
             .with_request_checker(|request: &SignedRequest| {
-                debug!("{:#?}", request);
                 assert_eq!(request.method, "GET");
                 assert_eq!(request.path, "/bucket/key");
-                assert_eq!(request.params.get("Action"), sstr("GetObject").as_ref());
                 assert_eq!(request.params.get("response-content-type"), sstr("response_content_type").as_ref());
                 assert!(request.headers.get("range").unwrap().contains(&Vec::from("range")));
-
                 assert_eq!(request.payload, None);
             });
 
