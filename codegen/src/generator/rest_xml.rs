@@ -8,7 +8,17 @@ pub struct RestXmlGenerator;
 
 impl GenerateProtocol for RestXmlGenerator {
     fn generate_methods(&self, service: &Service) -> String {
+
         service.operations.values().map(|operation| {
+
+            // botocore includes + for greedy parameters and we don't care about it
+            let (request_uri, maybe_params) = parse_query_string(&operation.http.request_uri);
+
+            let add_uri_parameters = match maybe_params {
+                 Some(key) => format!("params.put_key(\"{}\");", key),
+                 _ => "".to_owned()
+            };
+
             format!(
                 "{documentation}
                 #[allow(unused_variables, warnings)]
@@ -21,6 +31,7 @@ impl GenerateProtocol for RestXmlGenerator {
 
                     let mut request_uri = \"{request_uri}\".to_string();
 
+                    {add_uri_parameters}
                     {modify_uri}
 
                     let mut request = SignedRequest::new(\"{http_method}\", \"{endpoint_prefix}\", self.region, &request_uri);
@@ -33,6 +44,9 @@ impl GenerateProtocol for RestXmlGenerator {
                     }}
 
                     request.set_params(params);
+
+                    {service_specifics}
+
                     request.sign(&try!(self.credentials_provider.credentials()));
 
                     let response = try!(self.dispatcher.dispatch(&request));
@@ -50,12 +64,14 @@ impl GenerateProtocol for RestXmlGenerator {
                 endpoint_prefix = &service.metadata.endpoint_prefix,
                 method_signature = generate_method_signature(operation),
                 error_type = operation.error_type_name(),
-                request_uri = &operation.http.request_uri.replace("+",""),
+                request_uri = request_uri,
+                add_uri_parameters = add_uri_parameters,
                 serialize_input = generate_method_input_serialization(service, operation).unwrap_or("".to_string()),
                 modify_uri = generate_uri_modification(service, operation).unwrap_or("".to_string()),
                 set_headers = generate_headers(service, operation).unwrap_or("".to_string()),
                 set_parameters = generate_parameters(service, operation).unwrap_or("".to_string()),
-                parse_response = generate_response_parser(service, operation)
+                parse_response = generate_response_parser(service, operation),
+                service_specifics = generate_service_specific_code(service, operation).unwrap_or("".to_string())
             )
         }).collect::<Vec<String>>().join("\n")
     }
@@ -63,16 +79,15 @@ impl GenerateProtocol for RestXmlGenerator {
     fn generate_prelude(&self, _service: &Service) -> String {
         "use std::str::{FromStr};
         use std::collections::HashMap;
-
-        use xml::EventReader;
-
+        use data_encoding::base64;
+        use md5;
         use param::{Params, ServiceParams};
-
         use signature::SignedRequest;
+        use xml::EventReader;
         use xml::reader::events::XmlEvent;
+        use xmlerror::*;
         use xmlutil::{Next, Peek, XmlParseError, XmlResponse};
         use xmlutil::{peek_at_name, characters, end_element, start_element, skip_tree};
-        use xmlerror::*;
 
         enum DeserializerNext {
             Close,
@@ -255,6 +270,46 @@ fn generate_parameters(service: &Service, operation: &Operation) -> Option<Strin
         }
     }).collect::<Vec<String>>().join("\n"))
 }
+
+fn generate_service_specific_code(service: &Service, operation: &Operation) -> Option<String> {
+
+    // S3 needs some special handholding.  Others may later.  
+    // See `handlers.py` in botocore for more details
+    match service.service_type_name() {
+        "S3" => {
+            match &operation.name[..] {
+                "PutBucketTagging"|
+                "PutBucketLifecycle"|
+                "PutBucketLifecycleConfiguration"|
+                "PutBucketCors"|
+                "DeleteObjects"|
+                "PutBucketReplication" =>
+                    Some("let digest = md5::compute(payload.as_ref().unwrap());
+                          request.add_header(\"Content-MD5\", &base64::encode(&digest));".to_owned()),
+                _ => None
+            }
+        },
+        _ => None
+    }
+
+}
+
+fn parse_query_string(uri: &str) -> (String, Option<String>) {
+
+    // botocore query strings for S3 are variations on "/{Bucket}/{Key+}?foobar"
+    // the query string needs to be split out and put in the params hash,
+    // and the + isn't useful information for us
+
+    let base_uri = uri.replace("+","");
+    let parts: Vec<&str> = base_uri.split('?').collect();
+
+    match parts.len() {
+        1 => (parts[0].to_owned(), None),
+        2 => (parts[0].to_owned(), Some(parts[1].to_owned())),
+        _ => panic!("Unknown uri structure {}", uri)
+    }
+}
+
 fn generate_payload_serialization(shape: &Shape) -> String {
     let payload_field = shape.payload.as_ref().unwrap();
     let payload_member = shape.members.as_ref().unwrap().get(payload_field).unwrap();

@@ -2,6 +2,8 @@
 extern crate rusoto;
 extern crate time;
 extern crate hyper;
+extern crate env_logger;
+extern crate log;
 
 use hyper::Client;
 use std::fs::File;
@@ -28,11 +30,14 @@ fn test_all_the_things() {
     let test_bucket = format!("rusoto_test_bucket_{}", get_time().sec);
     let filename = format!("test_file_{}", get_time().sec);
 
+    // get a list of list_buckets
+    test_list_buckets(&client);
+
     // create a bucket for these tests
     test_create_bucket(&client, &test_bucket);
 
     // modify the bucket's CORS properties
-    //test_put_bucket_cors(&client, &test_bucket);
+    test_put_bucket_cors(&client, &test_bucket);
 
     // PUT an object (no_credentials is an arbitrary choice)
     test_put_object(&client, &test_bucket, &filename);
@@ -132,11 +137,7 @@ fn test_delete_object(client: &TestClient, bucket: &str, filename: &str) {
     client.delete_object(&del_req).unwrap();    
 }
 
-#[test]
-fn should_list_buckets() {
-    let credentials = DefaultCredentialsProvider::new().unwrap();
-    let client = S3Client::new(credentials, Region::UsEast1);
-
+fn test_list_buckets(client: &TestClient) {
     client.list_buckets().unwrap();
 }
 

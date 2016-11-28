@@ -303,7 +303,7 @@ mod test {
             .with_request_checker(|request: &SignedRequest| {
                 assert_eq!(request.method, "GET");
                 assert_eq!(request.path, "/bucket/key");
-                assert_eq!(request.params.get("response-content-type"), sstr("response_content_type").as_ref());
+                assert_eq!(*request.params.get("response-content-type").unwrap(), sstr("response_content_type"));
                 assert!(request.headers.get("range").unwrap().contains(&Vec::from("range")));
                 assert_eq!(request.payload, None);
             });
